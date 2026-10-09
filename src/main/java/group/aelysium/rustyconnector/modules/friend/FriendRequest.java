@@ -1,5 +1,7 @@
 package group.aelysium.rustyconnector.modules.friend;
 
+import group.aelysium.rustyconnector.RC;
+import group.aelysium.rustyconnector.common.errors.Error;
 import org.jetbrains.annotations.NotNull;
 
 import java.time.Instant;
@@ -35,25 +37,35 @@ public class FriendRequest {
         return this.status.get();
     }
     public boolean expired() {
-        return this.issuedAt.plusSeconds(60).isBefore(Instant.now());
+        long millis = this.registry.config().requestExpiration().unit().toMillis(this.registry.config().requestExpiration().value());
+        return this.issuedAt.plusMillis(millis).isBefore(Instant.now());
     }
 
     public void accept() {
         if(!this.status.get().equals(Status.PENDING)) return;
+
+        try {
+            this.registry.createFriendEntry(this.senderID, this.targetID);
+        } catch (Exception e) {
+            RC.Error(Error.from(e).whileAttempting("To save an accepted friend request to the database."));
+            return;
+        }
 
         this.registry.friends.computeIfAbsent(this.senderID, u -> new HashSet<>()).add(this.targetID);
         this.registry.friends.computeIfAbsent(this.targetID, u -> new HashSet<>()).add(this.senderID);
 
         this.status.set(Status.ACCEPTED);
 
-        this.registry.requests.remove(this.targetID);
+        java.util.Set<FriendRequest> reqs = this.registry.requests.get(this.targetID);
+        if(reqs != null) reqs.remove(this);
     }
     public void ignore() {
         if(!this.status.get().equals(Status.PENDING)) return;
 
         this.status.set(Status.IGNORED);
 
-        this.registry.requests.remove(this.targetID);
+        java.util.Set<FriendRequest> reqs = this.registry.requests.get(this.targetID);
+        if(reqs != null) reqs.remove(this);
     }
 
     @Override

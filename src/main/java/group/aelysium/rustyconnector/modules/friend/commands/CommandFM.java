@@ -19,64 +19,91 @@ import java.util.concurrent.CompletableFuture;
 
 import static net.kyori.adventure.text.Component.text;
 import static org.incendo.cloud.parser.standard.StringParser.stringParser;
+import net.kyori.adventure.text.format.TextColor;
+import static org.incendo.cloud.parser.standard.StringParser.greedyStringParser; // ADDED IMPORT
 
 public final class CommandFM {
     public static void register(CommandManager<CommandClient> manager, String alias) {
         manager.command(
-            manager.commandBuilder(alias)
-            .permission("rustyconnector.command.fm")
-            .senderType(CommandClient.Player.class)
-            .required("username", stringParser(), (context, input) -> {
-                try {
-                    PlayerRegistry players = RC.Module("PlayerRegistry");
-                    return CompletableFuture.completedFuture(
-                        ((FriendRegistry) RC.Module("Friends"))
-                            .fetchFriends(context.sender().id())
-                            .stream()
-                            .map(s -> {
+                manager.commandBuilder(alias)
+                        .permission("rustyconnector.command.fm")
+                        .senderType(CommandClient.Player.class)
+                        .optional("username", stringParser(), (context, input) -> {
+                            try {
+                                PlayerRegistry players = RC.Module("PlayerRegistry");
+                                return CompletableFuture.completedFuture(
+                                        ((FriendRegistry) RC.Module("Friends"))
+                                                .fetchFriends(context.sender().id())
+                                                .stream()
+                                                .map(s -> {
+                                                    try {
+                                                        return players.fetchByID(s).orElse(null);
+                                                    } catch (Exception ignore) {}
+                                                    return null;
+                                                })
+                                                .filter(p -> p != null && p.online())
+                                                .map(p->Suggestion.suggestion(p.username()))
+                                                .toList()
+                                );
+                            } catch (Exception ignore) {
+                                return CompletableFuture.completedFuture(List.of());
+                            }
+                        })
+                        .optional("message", greedyStringParser())
+                        .handler(context -> {
+                            String targetUsername = context.getOrDefault("username", null);
+                            String message = context.getOrDefault("message", null);
+                            
+                            if (targetUsername == null && message == null) {
                                 try {
-                                    return players.fetchByID(s).orElse(null);
-                                } catch (Exception ignore) {}
-                                return null;
-                            })
-                            .filter(p -> p != null && p.online())
-                            .map(p->Suggestion.suggestion(p.username()))
-                            .toList()
-                    );
-                } catch (Exception ignore) {
-                    return CompletableFuture.completedFuture(List.of());
-                }
-            })
-            .handler(context -> {
-                String targetUsername = context.get("username");
-                String message = context.get("message");
-                
-                Player targetPlayer = RC.P.PlayerFromUsername(targetUsername).orElse(null);
-                if (targetPlayer == null) {
-                    context.sender().send(text("There's no player with that username"));
-                    return;
-                } else if(!targetPlayer.online()) {
-                    context.sender().send(text(targetUsername+" isn't online"));
-                    return;
-                }
-                
-                FriendRegistry friends = RC.Module("Friends");
-                if(friends == null) {
-                    context.sender().send(RC.Lang("rustyconnector-internalError").generate());
-                    return;
-                }
-                
-                if(!friends.fetchFriends(context.sender().id()).contains(targetPlayer.id())) {
-                    context.sender().send(text("You and "+targetPlayer.username()+" aren't friends"));
-                    return;
-                }
-                
-                context.sender().send(Component.text("[you -> " + targetPlayer.username() + "]: " + message, NamedTextColor.GRAY));
-                targetPlayer.message(Component.text("[" + context.sender().username() + " -> you]: " + message, NamedTextColor.GRAY)
-                    .hoverEvent(HoverEvent.showText(text("Click to reply")))
-                    .clickEvent(ClickEvent.suggestCommand("/fm " + context.sender().username() + " ")));
-            })
-            .build()
+                                    RC.Lang("rcm-friends-controlBoard").generate(context.sender().id());
+                                    context.sender().send(text(""));
+                                    context.sender().send(RC.Lang("rcm-friends-listTip").generate());
+                                } catch (Exception e) {
+                                    RC.Error(group.aelysium.rustyconnector.common.errors.Error.from(e).whileAttempting("To provide a player their list of friends.").detail("Player ID", context.sender().id()));
+                                }
+                                return;
+                            }
+                            
+                            if (targetUsername == null) {
+                                context.sender().send(RC.Lang("rcm-friends-missingUsername").generate());
+                                return;
+                            }
+                            if (message == null) {
+                                context.sender().send(RC.Lang("rcm-friends-missingMessage").generate());
+                                return;
+                            }
+
+                            Player targetPlayer = RC.P.PlayerFromUsername(targetUsername).orElse(null);
+                            if (targetPlayer == null) {
+                                context.sender().send(RC.Lang("rcm-friends-noPlayer").generate());
+                                return;
+                            } else if(!targetPlayer.online()) {
+                                context.sender().send(RC.Lang("rcm-friends-notOnline").generate(targetUsername));
+                                return;
+                            }
+
+                            FriendRegistry friends = RC.Module("Friends");
+                            if(friends == null) {
+                                context.sender().send(RC.Lang("rustyconnector-internalError").generate());
+                                return;
+                            }
+
+                            try {
+                                if(!friends.fetchFriends(context.sender().id()).contains(targetPlayer.id())) {
+                                    context.sender().send(RC.Lang("rcm-friends-notFriends2").generate(targetPlayer.username()));
+                                    return;
+                                }
+                            } catch (Exception e) {
+                                throw new RuntimeException(e);
+                            }
+
+                            context.sender().send(Component.text("[you -> " + targetPlayer.username() + "]: " + message, NamedTextColor.GRAY));
+                            targetPlayer.message(Component.text("[" + context.sender().username() + " -> you]: " + message, NamedTextColor.GRAY)
+                                    .hoverEvent(HoverEvent.showText(text("Click to reply")))
+                                    .clickEvent(ClickEvent.suggestCommand("/fm " + context.sender().username() + " ")));
+                        })
+                        .build()
         );
     }
 }

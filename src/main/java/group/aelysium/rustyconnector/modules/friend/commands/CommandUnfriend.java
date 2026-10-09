@@ -22,7 +22,7 @@ public final class CommandUnfriend {
         manager.command(manager.commandBuilder(alias)
             .permission("rustyconnector.command.unfriend")
             .senderType(CommandClient.Player.class)
-            .required("username", stringParser(), (context, input) -> {
+            .optional("username", stringParser(), (context, input) -> {
                 try {
                     PlayerRegistry players = RC.Module("PlayerRegistry");
                     return CompletableFuture.completedFuture(
@@ -42,27 +42,36 @@ public final class CommandUnfriend {
                 }
             })
             .handler(context -> {
-                String targetUsername = context.get("username");
+                String targetUsername = context.getOrDefault("username", null);
+                if (targetUsername == null) {
+                    context.sender().send(RC.Lang("rcm-friends-missingUsername").generate());
+                    return;
+                }
                 
                 try {
                     FriendRegistry friends = (FriendRegistry) RC.ModuleFlux("Friends").get(3, TimeUnit.SECONDS);
                     
-                    Player targetPlayer = RC.P.PlayerFromUsername(targetUsername).orElse(null);
-                    if (targetPlayer == null) {
-                        context.sender().send(text("There's no player with that username"));
-                        return;
-                    } else if(!targetPlayer.online()) {
-                        context.sender().send(text("You may only send friend requests to online players"));
-                        return;
-                    }
-                    
                     Set<String> currentFriends = friends.fetchFriends(context.sender().id());
-                    if(!currentFriends.contains(targetPlayer.id())) {
-                        context.sender().send(text("You aren't friends with "+targetUsername));
+                    String targetID = null;
+                    PlayerRegistry players = RC.Module("PlayerRegistry");
+                    for (String friendID : currentFriends) {
+                        String fName = friendID;
+                        if (players != null) {
+                            try { fName = players.fetchByID(friendID).orElseThrow().username(); } catch(Exception ignore) {}
+                        }
+                        if (fName.equalsIgnoreCase(targetUsername)) {
+                            targetID = friendID;
+                            break;
+                        }
+                    }
+                    
+                    if (targetID == null) {
+                        context.sender().send(RC.Lang("rcm-friends-notFriends").generate(targetUsername));
                         return;
                     }
                     
-                    friends.unfriend(context.sender().id(), targetPlayer.id());
+                    friends.unfriend(context.sender().id(), targetID);
+                    context.sender().send(RC.Lang("rcm-friends-unfriended").generate(targetUsername));
                 } catch (Exception e) {
                     RC.Error(Error.from(e).whileAttempting("To unfriend two players.").detail("Player1", context.sender().username()).detail("Player2", targetUsername));
                     context.sender().send(RC.Lang("rustyconnector-internalError").generate());
