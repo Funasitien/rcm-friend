@@ -6,6 +6,7 @@
     "proxy"
   ],
   "dependencies": [
-    "haze"
+    "haze",
+    "haze-mysql"
   ]
 }
