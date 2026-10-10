@@ -4,6 +4,8 @@ import group.aelysium.rustyconnector.RC;
 import group.aelysium.rustyconnector.common.cache.TimeoutCache;
 import group.aelysium.rustyconnector.common.crypt.SHA256;
 import group.aelysium.rustyconnector.common.errors.Error;
+import group.aelysium.rustyconnector.common.modules.stats.RustyContext;
+import group.aelysium.rustyconnector.shaded.dev.faststats.Metrics;
 import group.aelysium.rustyconnector.common.events.EventManager;
 import group.aelysium.rustyconnector.common.haze.HazeDatabase;
 import group.aelysium.rustyconnector.common.modules.ExternalModuleBuilder;
@@ -49,10 +51,15 @@ public class FriendRegistry implements Module {
     protected final Map<String, Set<FriendRequest>> requests = new ConcurrentHashMap<>();
     protected final TimeoutCache<String, Set<String>> friends = new TimeoutCache<>(LiquidTimestamp.from(5, TimeUnit.MINUTES));
 
+    private final RustyContext context = new RustyContext.Factory(this, "2e426bef944a0aa88b0d9948629ee1ab")
+            .metrics(Metrics.Factory::create)
+            .create();
+
     public FriendRegistry(
             @NotNull FriendConfig config
     ) throws Exception {
         this.config = config;
+        this.context.ready();
 
         this.database = RC.P.Haze().fetchDatabase(this.config.database);
         if(this.database == null) throw new NoSuchElementException("No database exists on the haze provider with the name '"+this.config.database+"'.");
@@ -176,6 +183,7 @@ public class FriendRegistry implements Module {
     @Override
     public void close() {
         this.shutdown.set(true);
+        this.context.shutdown();
         this.expiredRequestCleaner.close();
 
         this.requests.forEach((k,v)->v.clear());
